@@ -93,11 +93,16 @@ import { createClient } from '@supabase/supabase-js';
 // ══════════════════════════════════════════════════════════════
 // CONFIGURATION — replace with your real keys
 // ══════════════════════════════════════════════════════════════
-const SUPABASE_URL      = 'YOUR_SUPABASE_URL';
-const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+const SUPABASE_URL      = 'https://emyltvgrxkbyzvkygjjh.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVteWx0dmdyeGtieXp2a3lnampoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzNTk0MjksImV4cCI6MjA5MzkzNTQyOX0.3Yiqlkne1uxWAXPuhy1_tBTO0sWm2oSm4OYbCvZzXgo';
 const ANTHROPIC_API_KEY = 'YOUR_ANTHROPIC_API_KEY';
 const STRIPE_KEY        = 'YOUR_STRIPE_KEY'; // eslint-disable-line no-unused-vars
 const OFF_BASE          = 'https://world.openfoodfacts.org/api/v2/product';
+
+// When the Fastify API is deployed, set VITE_API_URL in Netlify env vars.
+// Falls back to direct Supabase calls if not set.
+const API_URL  = import.meta.env.VITE_API_URL || '';
+const HAS_API  = API_URL.length > 0;
 
 const IS_DEMO  = SUPABASE_URL === 'YOUR_SUPABASE_URL';
 const supabase = IS_DEMO
@@ -139,6 +144,96 @@ const MOCK_USERS = [
 const SUPERMARKETS = ["Tesco","Sainsbury's","Asda","Waitrose","Aldi","Lidl","M&S","Co-op","Morrisons","Ocado"];
 const CATEGORIES   = ["Dairy","Meat","Fish","Bakery","Fruit & Veg","Snacks","Biscuits","Spreads","Drinks","Frozen","Ready Meals","Eggs","Cheese","Vegetarian","Condiments"];
 
+// Pre-populated UK product catalogue for shopping list autocomplete
+const UK_PRODUCTS_DB = [
+  { name:'Semi-Skimmed Milk (4 pints)', brand:'Tesco', category:'Dairy', supermarket:'Tesco' },
+  { name:'Whole Milk (6 pints)', brand:"Sainsbury's", category:'Dairy', supermarket:"Sainsbury's" },
+  { name:'Cravendale Filtered Milk (2L)', brand:'Cravendale', category:'Dairy', supermarket:'Various' },
+  { name:'Anchor Salted Butter (250g)', brand:'Anchor', category:'Dairy', supermarket:'Various' },
+  { name:'Lurpak Slightly Salted Butter', brand:'Lurpak', category:'Dairy', supermarket:'Various' },
+  { name:'Total 0% Greek Yogurt (500g)', brand:'Fage', category:'Dairy', supermarket:"Sainsbury's" },
+  { name:'Activia Natural Yogurt (4 pack)', brand:'Danone', category:'Dairy', supermarket:'Various' },
+  { name:'Clotted Cream (227g)', brand:"Rodda's", category:'Dairy', supermarket:'Various' },
+  { name:'Extra Mature Cheddar (400g)', brand:'Cathedral City', category:'Cheese', supermarket:'Tesco' },
+  { name:'Mature Cheddar (400g)', brand:'Davidstow', category:'Cheese', supermarket:'Various' },
+  { name:'Brie (200g)', brand:'President', category:'Cheese', supermarket:'Waitrose' },
+  { name:'Stilton (200g)', brand:'Long Clawson', category:'Cheese', supermarket:'Waitrose' },
+  { name:'Mozzarella (125g)', brand:'Galbani', category:'Cheese', supermarket:'Various' },
+  { name:'Parmesan (100g)', brand:'Grana Padano', category:'Cheese', supermarket:'Various' },
+  { name:'Smoked Back Bacon (300g)', brand:'M&S Collection', category:'Meat', supermarket:'M&S' },
+  { name:'British Beef Mince (500g)', brand:'Tesco', category:'Meat', supermarket:'Tesco' },
+  { name:'Free Range Chicken Breasts (500g)', brand:"Sainsbury's", category:'Meat', supermarket:"Sainsbury's" },
+  { name:'Pork Sausages (8 pack)', brand:'Richmond', category:'Meat', supermarket:'Various' },
+  { name:'Chicken Thighs (800g)', brand:'Asda', category:'Meat', supermarket:'Asda' },
+  { name:'Lamb Mince (500g)', brand:"Sainsbury's", category:'Meat', supermarket:"Sainsbury's" },
+  { name:'Smoked Salmon (100g)', brand:'Loch Fyne', category:'Fish', supermarket:'Various' },
+  { name:'Cod Fillets (2 pack)', brand:'Birds Eye', category:'Fish', supermarket:'Various' },
+  { name:'King Prawns (180g)', brand:'Tesco', category:'Fish', supermarket:'Tesco' },
+  { name:'Tuna Chunks in Spring Water', brand:'John West', category:'Fish', supermarket:'Various' },
+  { name:'Sourdough Bloomer', brand:'Lidl Bakery', category:'Bakery', supermarket:'Lidl' },
+  { name:'Seeded Batch Loaf', brand:'Warburtons', category:'Bakery', supermarket:'Various' },
+  { name:'White Farmhouse Loaf', brand:'Hovis', category:'Bakery', supermarket:'Various' },
+  { name:'Bagels (5 pack)', brand:'New York Bakeli', category:'Bakery', supermarket:'Various' },
+  { name:'Croissants (4 pack)', brand:'Lidl Bakery', category:'Bakery', supermarket:'Lidl' },
+  { name:'Crumpets (6 pack)', brand:'Warburtons', category:'Bakery', supermarket:'Various' },
+  { name:'Dark Chocolate Digestives', brand:"McVitie's", category:'Biscuits', supermarket:'Various' },
+  { name:'Milk Chocolate Hobnobs', brand:"McVitie's", category:'Biscuits', supermarket:'Various' },
+  { name:'Bourbon Creams', brand:"Fox's", category:'Biscuits', supermarket:'Various' },
+  { name:'Jaffa Cakes (12 pack)', brand:"McVitie's", category:'Biscuits', supermarket:'Various' },
+  { name:'Rich Tea Biscuits', brand:"McVitie's", category:'Biscuits', supermarket:'Various' },
+  { name:'Shortbread Rounds', brand:'Walkers', category:'Biscuits', supermarket:'Various' },
+  { name:'Custard Creams', brand:"Crawford's", category:'Biscuits', supermarket:'Various' },
+  { name:'Ready Salted Crisps (6 pack)', brand:'Walkers', category:'Snacks', supermarket:'Various' },
+  { name:'Prawn Cocktail Crisps (6 pack)', brand:'Walkers', category:'Snacks', supermarket:'Various' },
+  { name:'Kettle Chips Sea Salt (150g)', brand:'Kettle', category:'Snacks', supermarket:'Various' },
+  { name:'Pringles Original (200g)', brand:'Pringles', category:'Snacks', supermarket:'Various' },
+  { name:'Nakd Cocoa Mint Bar', brand:'Nakd', category:'Snacks', supermarket:'Various' },
+  { name:'Tracker Bars (6 pack)', brand:'Tracker', category:'Snacks', supermarket:'Various' },
+  { name:'Thick Cut Seville Orange Marmalade', brand:'Tiptree', category:'Spreads', supermarket:'Waitrose' },
+  { name:'Strawberry Jam (370g)', brand:'Bonne Maman', category:'Spreads', supermarket:'Various' },
+  { name:'Smooth Peanut Butter (340g)', brand:'Whole Earth', category:'Spreads', supermarket:'Various' },
+  { name:'Crunchy Peanut Butter (340g)', brand:'Whole Earth', category:'Spreads', supermarket:'Various' },
+  { name:'Nutella (400g)', brand:'Nutella', category:'Spreads', supermarket:'Various' },
+  { name:'Marmite (250g)', brand:'Marmite', category:'Spreads', supermarket:'Various' },
+  { name:'Lemon Curd (312g)', brand:"Tesco Finest", category:'Spreads', supermarket:'Tesco' },
+  { name:'Orange Juice Not From Concentrate (1L)', brand:'Tropicana', category:'Drinks', supermarket:'Various' },
+  { name:'Sparkling Water (6x500ml)', brand:'Buxton', category:'Drinks', supermarket:'Various' },
+  { name:'Oat Milk Barista Edition (1L)', brand:'Oatly', category:'Drinks', supermarket:'Various' },
+  { name:'Diet Coke (6x330ml cans)', brand:'Coca-Cola', category:'Drinks', supermarket:'Various' },
+  { name:'Yorkshire Tea (80 bags)', brand:'Yorkshire Tea', category:'Drinks', supermarket:'Various' },
+  { name:'PG Tips (80 bags)', brand:'PG Tips', category:'Drinks', supermarket:'Various' },
+  { name:'Nescafe Original (200g)', brand:'Nescafe', category:'Drinks', supermarket:'Various' },
+  { name:'Innocent Orange Juice (900ml)', brand:'Innocent', category:'Drinks', supermarket:'Various' },
+  { name:'Free Range Medium Eggs (6)', brand:'Aldi Specially Selected', category:'Eggs', supermarket:'Aldi' },
+  { name:'Free Range Large Eggs (12)', brand:'Clarence Court', category:'Eggs', supermarket:'Waitrose' },
+  { name:'Organic Free Range Eggs (6)', brand:"Sainsbury's Organic", category:'Eggs', supermarket:"Sainsbury's" },
+  { name:'Baby Spinach (200g)', brand:'Tesco', category:'Fruit & Veg', supermarket:'Tesco' },
+  { name:'Avocados (2 pack)', brand:"Sainsbury's", category:'Fruit & Veg', supermarket:"Sainsbury's" },
+  { name:'Cherry Tomatoes (400g)', brand:'Waitrose', category:'Fruit & Veg', supermarket:'Waitrose' },
+  { name:'Tenderstem Broccoli (200g)', brand:'M&S', category:'Fruit & Veg', supermarket:'M&S' },
+  { name:'Strawberries (400g)', brand:'Tesco', category:'Fruit & Veg', supermarket:'Tesco' },
+  { name:'Bananas (5 pack)', brand:'Fairtrade', category:'Fruit & Veg', supermarket:'Various' },
+  { name:'Garden Peas (900g)', brand:'Birds Eye', category:'Frozen', supermarket:'Various' },
+  { name:'Oven Chips (1.25kg)', brand:'McCain', category:'Frozen', supermarket:'Various' },
+  { name:'Margherita Pizza', brand:"Dr. Oetker", category:'Frozen', supermarket:'Various' },
+  { name:'Fish Fingers (10 pack)', brand:'Birds Eye', category:'Frozen', supermarket:'Various' },
+  { name:'Ben & Jerry\'s Cookie Dough (465ml)', brand:"Ben & Jerry's", category:'Frozen', supermarket:'Various' },
+  { name:'Chicken Tikka Masala', brand:'Tesco Finest', category:'Ready Meals', supermarket:'Tesco' },
+  { name:'Spaghetti Bolognese', brand:"Sainsbury's Taste the Diff.", category:'Ready Meals', supermarket:"Sainsbury's" },
+  { name:'Macaroni Cheese', brand:'M&S', category:'Ready Meals', supermarket:'M&S' },
+  { name:'Chicken Korma with Rice', brand:'Waitrose', category:'Ready Meals', supermarket:'Waitrose' },
+  { name:'Heinz Tomato Ketchup (700g)', brand:'Heinz', category:'Condiments', supermarket:'Various' },
+  { name:"Hellmann's Real Mayonnaise (430g)", brand:"Hellmann's", category:'Condiments', supermarket:'Various' },
+  { name:"Colman's English Mustard (100g)", brand:"Colman's", category:'Condiments', supermarket:'Various' },
+  { name:'Tabasco Original (60ml)', brand:'Tabasco', category:'Condiments', supermarket:'Various' },
+  { name:'Soy Sauce (150ml)', brand:'Kikkoman', category:'Condiments', supermarket:'Various' },
+  { name:'Plant Kitchen No-Beef Mince', brand:'M&S Plant Kitchen', category:'Vegetarian', supermarket:'M&S' },
+  { name:'Quorn Mince (500g)', brand:'Quorn', category:'Vegetarian', supermarket:'Various' },
+  { name:'Linda McCartney Sausages (6 pack)', brand:'Linda McCartney', category:'Vegetarian', supermarket:'Various' },
+  { name:'Oat So Simple Original (10 sachets)', brand:'Quaker', category:'Dairy', supermarket:'Various' },
+  { name:'Porridge Oats (1kg)', brand:'Scott\'s', category:'Dairy', supermarket:'Various' },
+];
+
 // ══════════════════════════════════════════════════════════════
 // GLOBAL STYLES
 // ══════════════════════════════════════════════════════════════
@@ -157,7 +252,10 @@ const GLOBAL_CSS = `
   --border:#333;--accent-light:#1a2e3d;--amber-bg:#1a1200;
   --shadow:0 1px 3px rgba(0,0,0,.4);--shadow-md:0 4px 12px rgba(0,0,0,.4);--shadow-lg:0 8px 24px rgba(0,0,0,.5);
 }}
-html,body,#root{height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+html{height:100%;height:-webkit-fill-available}
+body{min-height:100%;min-height:-webkit-fill-available}
+html,body,#root{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased}
+#root{height:100dvh;height:100vh;overflow:hidden}
 button{cursor:pointer;font-family:inherit;border:none;background:none}
 a{color:var(--accent);text-decoration:none}
 input,textarea,select{font-family:inherit;font-size:15px;background:var(--surface);color:var(--text);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:11px 13px;width:100%;outline:none;transition:border-color var(--tr)}
@@ -230,13 +328,17 @@ input::placeholder,textarea::placeholder{color:var(--muted)}
 
 .scan-overlay{position:fixed;inset:0;background:#000;z-index:400;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px}
 .viewfinder{position:relative;width:256px;height:256px}
-.vf-corner{position:absolute;width:32px;height:32px;border-style:solid;border-color:var(--accent)}
+.vf-corner{position:absolute;width:32px;height:32px;border-style:solid;border-color:var(--accent);transition:all .2s ease}
 .vf-corner.tl{top:0;left:0;border-width:3px 0 0 3px;border-radius:6px 0 0 0}
 .vf-corner.tr{top:0;right:0;border-width:3px 3px 0 0;border-radius:0 6px 0 0}
 .vf-corner.bl{bottom:0;left:0;border-width:0 0 3px 3px;border-radius:0 0 0 6px}
 .vf-corner.br{bottom:0;right:0;border-width:0 3px 3px 0;border-radius:0 0 6px 0}
+.vf-detected .vf-corner{border-color:#22c55e;width:42px;height:42px}
+.vf-detected{background:rgba(34,197,94,.12);border-radius:12px}
 .scan-line{position:absolute;left:4px;right:4px;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:scanline 2s ease-in-out infinite}
 @keyframes scanline{0%,100%{top:8px}50%{top:calc(100% - 10px)}}
+@keyframes pulse-green{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 .product-hero{width:100%;height:220px;object-fit:cover;background:var(--surface2)}
 .product-hero-placeholder{width:100%;height:220px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:64px}
@@ -301,9 +403,10 @@ const TrendIco   = () => <Icon d="M23 6l-9.5 9.5-5-5L1 18 M17 6h6v6"/>;
 // ══════════════════════════════════════════════════════════════
 // CONTEXTS
 // ══════════════════════════════════════════════════════════════
-const AuthCtx  = createContext(null);
-const ToastCtx = createContext(null);
-const NavCtx   = createContext(null);
+const AuthCtx     = createContext(null);
+const ToastCtx    = createContext(null);
+const NavCtx      = createContext(null);
+const ShopListCtx = createContext(null);
 
 // ══════════════════════════════════════════════════════════════
 // STYLE INJECTOR
@@ -498,6 +601,10 @@ function AuthScreen() {
   async function handleEmailAuth(e) {
     e.preventDefault();
     setLoading(true); setError('');
+    // Timeout promise — give up after 25 seconds (Supabase free tier can be slow to wake up)
+    const timeout = new Promise((_,reject) =>
+      setTimeout(()=>reject(new Error('Request timed out. Your database may be waking up — wait 2 minutes and try again.')), 25000)
+    );
     try {
       if (IS_DEMO) {
         setUser({ ...MOCK_USERS[0], isNew: mode==='signup' });
@@ -505,13 +612,20 @@ function AuthScreen() {
         return;
       }
       if (mode === 'signup') {
-        const { error } = await supabase.auth.signUp({ email, password });
+        const { error } = await Promise.race([
+          supabase.auth.signUp({ email, password }),
+          timeout,
+        ]);
         if (error) throw error;
-        showToast('Check your email to confirm your account');
+        showToast('Account created! You can now sign in.');
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+        const { data, error } = await Promise.race([
+          supabase.auth.signInWithPassword({ email, password }),
+          timeout,
+        ]);
         if (error) throw error;
-        setUser(data.user);
+        // Let onAuthStateChange handle setting the full user profile
+        // Just clear loading — the listener will update user state
       }
     } catch(err) {
       setError(err.message || 'Something went wrong. Please try again.');
@@ -726,13 +840,12 @@ function SearchScreen({ onProduct }) {
   const [q, setQ] = useState('');
   const [supermarket, setSupermarket] = useState('');
   const [category, setCategory] = useState('');
-  const [results, setResults] = useState(MOCK_PRODUCTS);
+  const [results, setResults] = useState(IS_DEMO ? MOCK_PRODUCTS : []);
   const [loading, setLoading] = useState(false);
   const debounce = useRef(null);
 
   const search = useCallback(async (query, sup, cat) => {
     setLoading(true);
-    await new Promise(r=>setTimeout(r,350));
     if (IS_DEMO) {
       let r = MOCK_PRODUCTS;
       if (query) r = r.filter(p => `${p.name} ${p.brand}`.toLowerCase().includes(query.toLowerCase()));
@@ -743,14 +856,34 @@ function SearchScreen({ onProduct }) {
       return;
     }
     try {
-      let qb = supabase.from('products').select('*');
-      if (query) qb = qb.or(`name.ilike.%${query}%,brand.ilike.%${query}%`);
-      if (sup)   qb = qb.eq('supermarket', sup);
-      if (cat)   qb = qb.eq('category', cat);
-      const { data } = await qb.limit(30);
-      setResults(data||[]);
-    } catch { setResults([]); }
-    setLoading(false);
+      if (HAS_API) {
+        const params = new URLSearchParams({ q: query||'', supermarket: sup||'', category: cat||'' });
+        const res = await Promise.race([
+          fetch(`${API_URL}/search?${params}`),
+          new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')), 8000)),
+        ]);
+        const json = await res.json();
+        setResults(json.results || []);
+      } else {
+        let qb = supabase
+          .from('products')
+          .select('id,barcode,name,brand,category,supermarket,image_url,score,review_count');
+        if (query) qb = qb.or(`name.ilike.%${query}%,brand.ilike.%${query}%`);
+        if (sup)   qb = qb.eq('supermarket', sup);
+        if (cat)   qb = qb.eq('category', cat);
+        qb = qb.order('review_count', { ascending: false }).limit(30);
+
+        const { data } = await Promise.race([
+          qb,
+          new Promise((_,r)=>setTimeout(()=>r(new Error('timeout')), 8000)),
+        ]);
+        setResults(data || []);
+      }
+    } catch {
+      setResults([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   function handleQ(v) {
@@ -806,63 +939,139 @@ function SearchScreen({ onProduct }) {
 // SCAN SCREEN
 // ══════════════════════════════════════════════════════════════
 function ScanScreen({ onClose, onProduct }) {
-  const [status, setStatus] = useState('Initialising camera…');
-  const [error, setError]   = useState('');
-  const [found, setFound]   = useState(null);
-  const [manual, setManual] = useState(false);
-  const [form, setForm]     = useState({ name:'', brand:'', supermarket:'', category:'' });
-  const [saving, setSaving] = useState(false);
-  const videoRef = useRef(null);
-  const readerRef= useRef(null);
+  const [status, setStatus]       = useState('Initialising camera…');
+  const [error, setError]         = useState('');
+  const [found, setFound]         = useState(null);
+  const [manual, setManual]       = useState(false);
+  const [detected, setDetected]   = useState(false);   // green flash when code read
+  const [scannedCode, setScannedCode] = useState('');  // show code under viewfinder
+  const [lookingUp, setLookingUp] = useState(false);   // spinner state
+  const [form, setForm]           = useState({ name:'', brand:'', supermarket:'', category:'', barcode:'' });
+  const [saving, setSaving]       = useState(false);
+  const videoRef  = useRef(null);
+  const readerRef = useRef(null);
   const { showToast } = useContext(ToastCtx);
 
   useEffect(()=>{
     let cancelled = false;
+    // Hard failsafe — if nothing resolves in 18s, go to manual
+    const hardTimeout = setTimeout(()=>{
+      if (!cancelled) { cancelled = true; setManual(true); }
+    }, 18000);
+
     async function start() {
       try {
         const { BrowserMultiFormatReader } = await import('@zxing/browser');
         const reader = new BrowserMultiFormatReader();
         readerRef.current = reader;
-        setStatus('Point the camera at a barcode');
-        await reader.decodeFromVideoDevice(undefined, videoRef.current, async (result, err) => {
-          if (cancelled || !result) return;
-          const code = result.getText();
-          setStatus(`Scanned: ${code} — looking up…`);
-          cancelled = true;
-          reader.reset();
-          try {
-            const res  = await fetch(`${OFF_BASE}/${code}.json`);
-            const data = await res.json();
-            if (data.status === 1 && data.product) {
-              const p = {
-                id: code, barcode: code,
-                name:      data.product.product_name || 'Unknown Product',
-                brand:     data.product.brands || '',
-                category:  data.product.categories_tags?.[0]?.replace('en:','') || 'Other',
-                supermarket: '',
-                image_url: data.product.image_url || null,
-                avg_taste:0, avg_value:0, avg_quality:0, review_count:0, ai_summary:null,
-              };
-              setFound(p);
-            } else {
-              setForm(f=>({...f, name:'', barcode:code}));
+        setStatus('Point camera at a barcode');
+        await reader.decodeFromConstraints(
+          { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+          videoRef.current,
+          async (result, err) => {
+            if (cancelled || !result) return;
+            const code = result.getText();
+            cancelled = true;
+            clearTimeout(hardTimeout);
+            reader.reset();
+
+            // ── Visual: green flash on viewfinder ────────────────────────
+            setDetected(true);
+            setScannedCode(code);
+            setStatus('');
+            setLookingUp(true);
+
+            try {
+              // ── Tier 1: Fastify API (Redis → DB → OFF in one call) ────
+              if (HAS_API) {
+                const controller = new AbortController();
+                const timer = setTimeout(()=>controller.abort(), 10000);
+                try {
+                  const res = await fetch(`${API_URL}/product/${code}`, { signal: controller.signal });
+                  clearTimeout(timer);
+                  if (res.ok) {
+                    const p = await res.json();
+                    setLookingUp(false);
+                    setFound({ ...p, avg_taste: p.avg_taste??0, avg_value: p.avg_value??0, avg_quality: p.avg_quality??0 });
+                    return;
+                  }
+                  if (res.status === 404) {
+                    clearTimeout(timer);
+                    setLookingUp(false);
+                    setForm(f=>({...f, barcode:code}));
+                    setManual(true);
+                    return;
+                  }
+                } catch { clearTimeout(timer); /* fall through to direct Supabase */ }
+              }
+
+              // ── Tier 2: Direct Supabase (no API deployed yet) ────────
+              if (!IS_DEMO) {
+                try {
+                  const { data: cached } = await Promise.race([
+                    supabase.from('products').select('*').eq('barcode', code).single(),
+                    new Promise((_,r) => setTimeout(()=>r(new Error('timeout')), 2000)),
+                  ]);
+                  if (cached) {
+                    setLookingUp(false);
+                    setFound({ ...cached, avg_taste:cached.avg_taste??0, avg_value:cached.avg_value??0, avg_quality:cached.avg_quality??0, review_count:cached.review_count??0 });
+                    return;
+                  }
+                } catch { /* not found or timeout — continue to OFF */ }
+              }
+
+              // ── Tier 3: Open Food Facts direct (fallback) ─────────────
+              const controller = new AbortController();
+              const offTimer = setTimeout(()=>controller.abort(), 8000);
+              try {
+                const res  = await fetch(`${OFF_BASE}/${code}.json`, { signal: controller.signal });
+                clearTimeout(offTimer);
+                const data = await res.json();
+                if (data.status === 1 && data.product) {
+                  const p = {
+                    id: code, barcode: code,
+                    name:      data.product.product_name || data.product.abbreviated_product_name || 'Unknown Product',
+                    brand:     data.product.brands || '',
+                    category:  data.product.categories_tags?.[0]?.replace('en:','') || 'Other',
+                    supermarket: '',
+                    image_url: data.product.image_front_url || data.product.image_url || null,
+                    avg_taste:0, avg_value:0, avg_quality:0, review_count:0, ai_summary:null,
+                  };
+                  if (!IS_DEMO) supabase.from('products').insert({ barcode:p.barcode, name:p.name, brand:p.brand, category:p.category, image_url:p.image_url }).catch(()=>{});
+                  setLookingUp(false);
+                  setFound(p);
+                } else {
+                  setLookingUp(false);
+                  setForm(f=>({...f, barcode:code}));
+                  setManual(true);
+                }
+              } catch {
+                clearTimeout(offTimer);
+                setLookingUp(false);
+                setForm(f=>({...f, barcode:code}));
+                setManual(true);
+              }
+            } catch {
+              setLookingUp(false);
+              setForm(f=>({...f, barcode:code}));
               setManual(true);
-              setStatus('');
             }
-          } catch {
-            setError('Could not look up that barcode. You can add the product manually.');
           }
-        });
+        );
       } catch(e) {
-        if (e?.message?.includes('Cannot find module') || e?.message?.includes('Failed to fetch dynamically')) {
-          setError('Install @zxing/browser (npm install @zxing/browser) to enable camera scanning.');
+        clearTimeout(hardTimeout);
+        const msg = e?.message || '';
+        if (msg.includes('Cannot find module') || msg.includes('Failed to fetch dynamically')) {
+          setError('Run "npm install" to enable camera scanning.');
+        } else if (msg.includes('Permission') || msg.includes('permission') || msg.includes('NotAllowed')) {
+          setError('Camera access denied. Please allow camera access in your browser settings, then try again.');
         } else {
-          setError('Camera access was denied. Please allow camera access in your browser settings.');
+          setError('Could not start camera. Try adding the product manually.');
         }
       }
     }
     start();
-    return () => { cancelled = true; readerRef.current?.reset?.(); };
+    return () => { cancelled = true; clearTimeout(hardTimeout); try { readerRef.current?.reset?.(); } catch {} };
   }, []);
 
   async function saveManual(e) {
@@ -877,7 +1086,7 @@ function ScanScreen({ onClose, onProduct }) {
     };
     if (!IS_DEMO) {
       const { data } = await supabase.from('products').insert({
-        barcode:newP.barcode, name:newP.name, brand:newP.brand,
+        barcode:newP.barcode||null, name:newP.name, brand:newP.brand,
         supermarket:newP.supermarket, category:newP.category,
       }).select().single();
       if (data) newP.id = data.id;
@@ -888,6 +1097,7 @@ function ScanScreen({ onClose, onProduct }) {
     onClose();
   }
 
+  // ── Found screen ────────────────────────────────────────────────────────
   if (found) return (
     <div className="scan-overlay" style={{background:'var(--bg)',padding:24}}>
       <div style={{fontSize:48}}>{categoryEmoji(found.category)}</div>
@@ -905,6 +1115,7 @@ function ScanScreen({ onClose, onProduct }) {
     </div>
   );
 
+  // ── Manual entry screen ─────────────────────────────────────────────────
   if (manual) return (
     <div className="scan-overlay" style={{background:'var(--bg)',justifyContent:'flex-start',overflowY:'auto',padding:24}}>
       <div style={{width:'100%',maxWidth:480}}>
@@ -912,10 +1123,19 @@ function ScanScreen({ onClose, onProduct }) {
           <BackIco/>
         </button>
         <h2 style={{fontSize:22,fontWeight:800,marginBottom:4}}>Add product manually</h2>
-        <p style={{color:'var(--muted)',marginBottom:24,fontSize:14}}>We couldn't find this barcode in the Open Food Facts database. Help the community by adding it.</p>
+        <p style={{color:'var(--muted)',marginBottom:24,fontSize:14}}>
+          {form.barcode
+            ? `Barcode ${form.barcode} wasn't found — fill in the details below.`
+            : "Couldn't find that product — fill in the details below."}
+        </p>
         <form onSubmit={saveManual} style={{display:'flex',flexDirection:'column',gap:12}}>
-          <input placeholder="Product name *" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} required/>
-          <input placeholder="Brand" value={form.brand} onChange={e=>setForm(f=>({...f,brand:e.target.value}))}/>
+          <input placeholder="Product name *" value={form.name}
+            onChange={e=>setForm(f=>({...f,name:e.target.value}))} required/>
+          <input placeholder="Brand" value={form.brand}
+            onChange={e=>setForm(f=>({...f,brand:e.target.value}))}/>
+          <input placeholder="Barcode (optional)" value={form.barcode}
+            onChange={e=>setForm(f=>({...f,barcode:e.target.value}))}
+            inputMode="numeric"/>
           <select value={form.supermarket} onChange={e=>setForm(f=>({...f,supermarket:e.target.value}))}>
             <option value="">Supermarket (optional)</option>
             {SUPERMARKETS.map(s=><option key={s}>{s}</option>)}
@@ -932,29 +1152,50 @@ function ScanScreen({ onClose, onProduct }) {
     </div>
   );
 
+  // ── Camera view ─────────────────────────────────────────────────────────
   return (
     <div className="scan-overlay">
       <button onClick={onClose} style={{position:'absolute',top:48,left:24,color:'#fff',padding:8}}>
         <XIco/>
       </button>
-      <p style={{color:'rgba(255,255,255,.7)',fontSize:14}}>Barcode scanner</p>
-      <div style={{position:'relative',width:256,height:256}}>
-        <video ref={videoRef} style={{width:'100%',height:'100%',objectFit:'cover',borderRadius:12,opacity:.01}} playsInline muted/>
-        <div className="viewfinder">
+      <p style={{color:'rgba(255,255,255,.6)',fontSize:13,letterSpacing:.5,textTransform:'uppercase'}}>Barcode scanner</p>
+
+      <div style={{position:'relative',width:260,height:260}}>
+        <video ref={videoRef}
+          style={{position:'absolute',inset:0,width:'100%',height:'100%',objectFit:'cover',borderRadius:12}}
+          playsInline muted/>
+        <div className={`viewfinder${detected?' vf-detected':''}`} style={{position:'absolute',inset:0,borderRadius:12}}>
           <div className="vf-corner tl"/><div className="vf-corner tr"/>
           <div className="vf-corner bl"/><div className="vf-corner br"/>
-          {!error && <div className="scan-line"/>}
+          {!error && !detected && <div className="scan-line"/>}
         </div>
       </div>
+
+      {/* Status area below viewfinder */}
       {error ? (
         <div style={{padding:'16px 24px',background:'rgba(255,255,255,.1)',borderRadius:12,maxWidth:300,textAlign:'center'}}>
           <p style={{color:'#fff',fontSize:14,marginBottom:12}}>{error}</p>
           <button className="btn btn-secondary btn-sm" onClick={()=>setManual(true)}>Add manually instead</button>
         </div>
+      ) : lookingUp ? (
+        <div style={{textAlign:'center'}}>
+          <p style={{color:'#22c55e',fontSize:16,fontWeight:700,letterSpacing:.3}}>
+            ✓ BARCODE DETECTED
+          </p>
+          <p style={{color:'rgba(255,255,255,.5)',fontSize:12,marginTop:4,fontFamily:'monospace'}}>{scannedCode}</p>
+          <p style={{color:'rgba(255,255,255,.7)',fontSize:13,marginTop:8}}>Looking up product…</p>
+        </div>
       ) : (
-        <p style={{color:'rgba(255,255,255,.8)',fontSize:14,textAlign:'center',maxWidth:260}}>{status}</p>
+        <p style={{color:'rgba(255,255,255,.85)',fontSize:15,fontWeight:500,textAlign:'center',maxWidth:260}}>
+          {status}
+        </p>
       )}
-      <button className="btn btn-secondary btn-sm" onClick={()=>setManual(true)}>Add product manually</button>
+
+      {!lookingUp && (
+        <button className="btn btn-secondary btn-sm" onClick={()=>setManual(true)}>
+          Add product manually
+        </button>
+      )}
     </div>
   );
 }
@@ -1072,12 +1313,13 @@ function ReviewForm({ product, onClose, onSubmitted }) {
 function ProductPage({ product: initialProduct, onClose, onCompare }) {
   const { user }       = useContext(AuthCtx);
   const { showToast }  = useContext(ToastCtx);
+  const { addToList, removeFromList, isInList } = useContext(ShopListCtx);
   const [product, setProduct]   = useState(initialProduct);
   const [reviews, setReviews]   = useState([]);
   const [loading, setLoading]   = useState(true);
   const [aiLoading, setAiLoading] = useState(false);
   const [showReview, setShowReview] = useState(false);
-  const [inList, setInList]     = useState(false);
+  const inList = isInList(initialProduct.id);
 
   const overall = avg(product.avg_taste||0, product.avg_value||0, product.avg_quality||0);
 
@@ -1143,16 +1385,13 @@ function ProductPage({ product: initialProduct, onClose, onCompare }) {
     setAiLoading(false);
   }
 
-  async function toggleList(){
-    if(!user){ showToast('Sign in to manage your shopping list'); return; }
-    setInList(v=>!v);
-    showToast(inList ? 'Removed from shopping list' : 'Added to shopping list ✓');
-    if(!IS_DEMO){
-      if(!inList){
-        await supabase.from('shopping_list').insert({user_id:user.id,product_id:product.id});
-      } else {
-        await supabase.from('shopping_list').delete().eq('user_id',user.id).eq('product_id',product.id);
-      }
+  function toggleList(){
+    if(inList){
+      removeFromList(product.id);
+      showToast('Removed from shopping list');
+    } else {
+      addToList(product);
+      showToast('Added to shopping list ✓');
     }
   }
 
@@ -1407,33 +1646,63 @@ function CompareScreen({ focusProduct }) {
 // SHOPPING LIST SCREEN
 // ══════════════════════════════════════════════════════════════
 function ShoppingListScreen() {
-  const { user }      = useContext(AuthCtx);
-  const { showToast } = useContext(ToastCtx);
-  const [tab, setTab] = useState('all');
-  const [items, setItems] = useState([
-    { id:'sl1', product_id:'p4', is_favourite:false, is_checked:false, created_at:'2026-05-10T10:00:00Z', product: MOCK_PRODUCTS[3] },
-    { id:'sl2', product_id:'p1', is_favourite:true,  is_checked:false, created_at:'2026-05-09T09:00:00Z', product: MOCK_PRODUCTS[0] },
-    { id:'sl3', product_id:'p6', is_favourite:false, is_checked:true,  created_at:'2026-05-08T08:00:00Z', product: MOCK_PRODUCTS[5] },
-  ]);
-  const [addInput, setAddInput] = useState('');
-  const [loading, setLoading]  = useState(false);
+  const { showToast }                           = useContext(ToastCtx);
+  const { items, setItems, toggleCheck,
+          toggleFavourite, clearChecked,
+          addManualItem }                        = useContext(ShopListCtx);
+  const [tab, setTab]             = useState('all');
+  const [addInput, setAddInput]   = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [suggestions, setSuggestions]  = useState([]);
+  const [searching, setSearching]      = useState(false);
+  const inputRef    = useRef(null);
+  const debounceRef = useRef(null);
 
-  function toggle(id) {
-    setItems(prev=>prev.map(i=>i.id===id?{...i,is_checked:!i.is_checked}:i));
-  }
-  function favourite(id) {
-    setItems(prev=>prev.map(i=>i.id===id?{...i,is_favourite:!i.is_favourite}:i));
-  }
-  function clearChecked() {
-    setItems(prev=>prev.filter(i=>!i.is_checked));
-    showToast('Cleared completed items');
+  useEffect(()=>{
+    const q = addInput.trim();
+    if (!q || q.length < 2) { setSuggestions([]); setSearching(false); return; }
+
+    setSearching(true);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async ()=>{
+      try {
+        if (IS_DEMO) {
+          setSuggestions(UK_PRODUCTS_DB
+            .filter(p=>`${p.name} ${p.brand}`.toLowerCase().includes(q.toLowerCase()))
+            .slice(0,8));
+        } else {
+          const { data } = await supabase
+            .from('products')
+            .select('id,name,brand,category,supermarket,barcode')
+            .ilike('name', `%${q}%`)
+            .limit(8);
+          setSuggestions(data ?? []);
+        }
+      } catch { setSuggestions([]); }
+      finally { setSearching(false); }
+    }, 250);
+    return ()=>clearTimeout(debounceRef.current);
+  },[addInput]);
+
+  function pickSuggestion(p) {
+    addManualItem({ name:p.name, brand:p.brand, category:p.category, supermarket:p.supermarket });
+    setAddInput('');
+    setShowDropdown(false);
+    showToast(`${p.name} added ✓`);
   }
 
-  const visible = items.filter(i=>{
-    if(tab==='favourites')    return i.is_favourite;
-    if(tab==='recent')        return true;
+  function addFreeText() {
+    if (!addInput.trim()) return;
+    addManualItem({ name:addInput.trim(), brand:'', category:'Other', supermarket:'' });
+    setAddInput('');
+    setShowDropdown(false);
+    showToast(`${addInput.trim()} added ✓`);
+  }
+
+  const visible = items.filter(i => {
+    if (tab === 'favourites') return i.is_favourite;
     return true;
-  }).sort((a,b)=>tab==='recent'?new Date(b.created_at)-new Date(a.created_at):0);
+  }).sort((a,b) => tab==='recent' ? new Date(b.created_at)-new Date(a.created_at) : 0);
 
   const checkedCount = items.filter(i=>i.is_checked).length;
 
@@ -1449,8 +1718,56 @@ function ShoppingListScreen() {
       </div>
 
       <div style={{padding:'16px'}}>
+        {/* Add item input with autocomplete */}
+        <div style={{position:'relative',marginBottom:16}}>
+          <div style={{display:'flex',gap:8}}>
+            <div style={{flex:1,position:'relative'}}>
+              <input
+                ref={inputRef}
+                placeholder="Search or type a product…"
+                value={addInput}
+                onChange={e=>{ setAddInput(e.target.value); setShowDropdown(true); }}
+                onFocus={()=>setShowDropdown(true)}
+                onKeyDown={e=>{ if(e.key==='Enter'){ addFreeText(); } if(e.key==='Escape') setShowDropdown(false); }}
+              />
+              {showDropdown && (searching || suggestions.length > 0) && addInput.trim().length >= 2 && (
+                <div style={{position:'absolute',top:'calc(100% + 4px)',left:0,right:0,background:'var(--surface)',
+                  border:'1px solid var(--border)',borderRadius:10,zIndex:50,boxShadow:'var(--shadow-lg)',overflow:'hidden',maxHeight:320,overflowY:'auto'}}>
+                  {searching ? (
+                    <div style={{padding:'14px 16px',color:'var(--muted)',fontSize:13,display:'flex',alignItems:'center',gap:8}}>
+                      <span style={{display:'inline-block',width:14,height:14,border:'2px solid var(--border)',
+                        borderTopColor:'var(--accent)',borderRadius:'50%',animation:'spin .6s linear infinite'}}/>
+                      Searching…
+                    </div>
+                  ) : suggestions.map((p,i)=>(
+                    <button key={p.id??i} onMouseDown={e=>{ e.preventDefault(); pickSuggestion(p); }}
+                      style={{display:'flex',gap:10,padding:'10px 12px',width:'100%',textAlign:'left',
+                        background:'none',border:'none',cursor:'pointer',borderBottom:'1px solid var(--border)',
+                        alignItems:'center'}}>
+                      <span style={{fontSize:22,flexShrink:0}}>{categoryEmoji(p.category)}</span>
+                      <div style={{minWidth:0}}>
+                        <div style={{fontWeight:600,fontSize:13,lineHeight:1.3}}>{p.name}</div>
+                        <div style={{fontSize:12,color:'var(--muted)'}}>{[p.brand,p.supermarket].filter(Boolean).join(' · ')}</div>
+                      </div>
+                    </button>
+                  ))}
+                  {!searching && addInput.trim() && (
+                    <button onMouseDown={e=>{ e.preventDefault(); addFreeText(); }}
+                      style={{display:'flex',gap:10,padding:'10px 12px',width:'100%',textAlign:'left',
+                        background:'var(--accent-light)',border:'none',cursor:'pointer',alignItems:'center'}}>
+                      <PlusIco/>
+                      <span style={{fontSize:13,fontWeight:600,color:'var(--accent)'}}>Add "{addInput.trim()}" manually</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+            <button className="btn btn-primary" onClick={addFreeText} style={{flexShrink:0}}><PlusIco/></button>
+          </div>
+        </div>
+
         {checkedCount>0&&(
-          <button className="btn btn-secondary btn-sm" style={{marginBottom:16,width:'100%'}} onClick={clearChecked}>
+          <button className="btn btn-secondary btn-sm" style={{marginBottom:16,width:'100%'}} onClick={()=>{ clearChecked(); showToast('Cleared completed items'); }}>
             <CheckIco/> Clear {checkedCount} completed item{checkedCount!==1?'s':''}
           </button>
         )}
@@ -1462,50 +1779,35 @@ function ShoppingListScreen() {
               {tab==='favourites' ? 'No favourites yet' : 'Your list is empty'}
             </div>
             <div style={{fontSize:14}}>
-              {tab==='favourites' ? 'Tap the heart on any list item to save it.' : 'Add products from their pages, or type below.'}
+              {tab==='favourites' ? 'Tap the heart on any list item to save it.' : 'Search for a product above or add from any product page.'}
             </div>
           </div>
         ) : visible.map(item=>(
           <div key={item.id} className="card" style={{display:'flex',alignItems:'center',gap:12,padding:12,marginBottom:8}}>
-            <button onClick={()=>toggle(item.id)}
-              style={{width:24,height:24,borderRadius:'50%',border:`2px solid ${item.is_checked?'var(--success)':'var(--border)'}`,
+            <button onClick={()=>toggleCheck(item.id)}
+              style={{width:26,height:26,borderRadius:'50%',border:`2px solid ${item.is_checked?'var(--success)':'var(--border)'}`,
                 background:item.is_checked?'var(--success)':'transparent',flexShrink:0,
                 display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>
               {item.is_checked&&<CheckIco/>}
             </button>
-            <span style={{fontSize:28}}>{categoryEmoji(item.product?.category)}</span>
+            <span style={{fontSize:26}}>{categoryEmoji(item.product?.category)}</span>
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontWeight:600,fontSize:14,textDecoration:item.is_checked?'line-through':'none',
-                color:item.is_checked?'var(--muted)':'var(--text)'}}>
+                color:item.is_checked?'var(--muted)':'var(--text)',lineHeight:1.3}}>
                 {item.product?.name||'Unknown product'}
               </div>
-              <div style={{fontSize:12,color:'var(--muted)'}}>{item.product?.brand} · {item.product?.supermarket}</div>
+              {(item.product?.brand||item.product?.supermarket) && (
+                <div style={{fontSize:12,color:'var(--muted)'}}>
+                  {[item.product.brand, item.product.supermarket].filter(Boolean).join(' · ')}
+                </div>
+              )}
             </div>
-            <button onClick={()=>favourite(item.id)} style={{color:item.is_favourite?'#e53e3e':'var(--border)',flexShrink:0}}>
+            <button onClick={()=>toggleFavourite(item.id)}
+              style={{color:item.is_favourite?'#e53e3e':'var(--border)',flexShrink:0,background:'none',border:'none',padding:4}}>
               <HeartIco f={item.is_favourite}/>
             </button>
           </div>
         ))}
-
-        <div style={{marginTop:16}}>
-          <div style={{display:'flex',gap:8}}>
-            <input placeholder="Add item manually…" value={addInput} onChange={e=>setAddInput(e.target.value)}
-              onKeyDown={e=>{
-                if(e.key==='Enter'&&addInput.trim()){
-                  setItems(prev=>[...prev,{id:`sl${Date.now()}`,product_id:null,is_favourite:false,is_checked:false,
-                    created_at:new Date().toISOString(),product:{name:addInput.trim(),category:'Other',brand:'',supermarket:''}}]);
-                  setAddInput('');
-                }
-              }}/>
-            <button className="btn btn-primary" onClick={()=>{
-              if(addInput.trim()){
-                setItems(prev=>[...prev,{id:`sl${Date.now()}`,product_id:null,is_favourite:false,is_checked:false,
-                  created_at:new Date().toISOString(),product:{name:addInput.trim(),category:'Other',brand:'',supermarket:''}}]);
-                setAddInput('');
-              }
-            }}><PlusIco/></button>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -1732,26 +2034,69 @@ export default function App() {
   // ── Supabase auth listener ────────────────────────────────
   useEffect(()=>{
     if(IS_DEMO){ setAuthLoading(false); return; }
-    supabase.auth.getSession().then(async ({ data:{ session } })=>{
+
+    // Safety net — show login screen after 4s no matter what
+    const timeout = setTimeout(()=>setAuthLoading(false), 4000);
+
+    // onAuthStateChange fires immediately with the current session
+    // from local storage — no network call needed on startup.
+    // IMPORTANT: clear authLoading immediately so the spinner never gets stuck.
+    // Profile fetch from DB happens in the background after loading screen is gone.
+    const { data:{ subscription } } = supabase.auth.onAuthStateChange(async (event, session)=>{
+      clearTimeout(timeout);
       if(session?.user){
-        const { data } = await supabase.from('users').select('*').eq('id',session.user.id).single();
-        setUser(data ? { ...data } : { ...session.user, isNew:true });
+        // Show the app immediately using the auth session data
+        setUser(prev => prev ?? { ...session.user });
+        setAuthLoading(false);
+        // Fetch full profile in the background (DB may be slow on free tier)
+        try {
+          const { data } = await supabase.from('users').select('*').eq('id',session.user.id).single();
+          if(data) setUser({ ...data });
+          else setUser(u => ({ ...u, isNew:true }));
+        } catch {
+          setUser(u => ({ ...u, isNew:true }));
+        }
+      } else {
+        setUser(null);
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
-    const { data:{ subscription } } = supabase.auth.onAuthStateChange(async (_event, session)=>{
-      if(session?.user){
-        const { data } = await supabase.from('users').select('*').eq('id',session.user.id).single();
-        setUser(data ? { ...data } : { ...session.user, isNew:true });
-      } else { setUser(null); }
-    });
-    return ()=>subscription.unsubscribe();
+
+    return ()=>{ subscription.unsubscribe(); clearTimeout(timeout); };
   },[]);
 
   async function signOut(){
     if(!IS_DEMO) await supabase.auth.signOut();
     setUser(null);
   }
+
+  // ── Shopping list state (global so ProductPage + ListScreen share it) ──
+  const [listItems, setListItems] = useState([]);
+
+  const shopListCtx = useMemo(()=>({
+    items: listItems,
+    setItems: setListItems,
+    isInList: (productId) => listItems.some(i=>i.product_id===productId),
+    addToList: (product) => {
+      if (listItems.some(i=>i.product_id===product.id)) return;
+      const item = { id:`sl-${Date.now()}`, product_id:product.id, is_favourite:false,
+        is_checked:false, created_at:new Date().toISOString(), product };
+      setListItems(prev=>[item,...prev]);
+      if(!IS_DEMO && user) supabase.from('shopping_list').insert({user_id:user.id, product_id:product.id}).catch(()=>{});
+    },
+    removeFromList: (productId) => {
+      setListItems(prev=>prev.filter(i=>i.product_id!==productId));
+      if(!IS_DEMO && user) supabase.from('shopping_list').delete().eq('user_id',user.id).eq('product_id',productId).catch(()=>{});
+    },
+    toggleCheck: (id) => setListItems(prev=>prev.map(i=>i.id===id?{...i,is_checked:!i.is_checked}:i)),
+    toggleFavourite: (id) => setListItems(prev=>prev.map(i=>i.id===id?{...i,is_favourite:!i.is_favourite}:i)),
+    clearChecked: () => setListItems(prev=>prev.filter(i=>!i.is_checked)),
+    addManualItem: (product) => {
+      const item = { id:`sl-${Date.now()}`, product_id:`manual-${Date.now()}`,
+        is_favourite:false, is_checked:false, created_at:new Date().toISOString(), product };
+      setListItems(prev=>[item,...prev]);
+    },
+  }), [listItems, user]);
 
   // ── Render ────────────────────────────────────────────────
   if(authLoading){
@@ -1795,10 +2140,11 @@ export default function App() {
   return (
     <AuthCtx.Provider value={{ user, setUser, signOut }}>
       <ToastCtx.Provider value={{ showToast }}>
+        <ShopListCtx.Provider value={shopListCtx}>
         <NavCtx.Provider value={navCtxVal}>
           <StyleInjector/>
 
-          <div style={{position:'relative',height:'100vh',overflow:'hidden',maxWidth:640,margin:'0 auto'}}>
+          <div style={{position:'relative',height:'100dvh',minHeight:'-webkit-fill-available',overflow:'hidden',maxWidth:640,margin:'0 auto'}}>
 
             {/* Tab screens */}
             {tab==='home'    && <HomeScreen key="home"       onProduct={setProduct}/>}
@@ -1840,6 +2186,7 @@ export default function App() {
 
           {toast && <Toast message={toast}/>}
         </NavCtx.Provider>
+        </ShopListCtx.Provider>
       </ToastCtx.Provider>
     </AuthCtx.Provider>
   );
