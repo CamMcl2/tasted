@@ -46,7 +46,8 @@ await fastify.register(rateLimit, {
   max:      100,
   timeWindow: '1 minute',
   // Upstash Redis store via ioredis (optional — falls back to in-memory)
-  ...(process.env.UPSTASH_REDIS_HOST ? {
+  // Only use Redis for rate limiting if a real host is configured
+  ...(process.env.UPSTASH_REDIS_HOST && !process.env.UPSTASH_REDIS_HOST.startsWith('#') ? {
     redis: await (async () => {
       const { default: Redis } = await import('ioredis');
       return new Redis({
