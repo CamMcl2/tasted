@@ -35,7 +35,8 @@ function getQueue() {
  * No-op if Redis isn't configured — server still works, just no AI summaries.
  */
 export async function queueEnrichment(productId, barcode, priority = 10) {
-  if (!process.env.UPSTASH_REDIS_HOST) {
+  const host = process.env.UPSTASH_REDIS_HOST;
+  if (!host || host.startsWith('#')) {
     console.log(`[queue] Redis not configured — skipping enrichment for ${barcode}`);
     return null;
   }
