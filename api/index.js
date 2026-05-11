@@ -1,29 +1,31 @@
-import Fastify       from 'fastify';
-import compress      from '@fastify/compress';
-import cors          from '@fastify/cors';
-import rateLimit     from '@fastify/rate-limit';
-import productRoutes from './routes/product.js';
-import healthRoutes  from './routes/health.js';
+import Fastify from 'fastify';
 
 const PORT = Number(process.env.PORT) || 3001;
-
 const fastify = Fastify({ logger: true });
 
-await fastify.register(compress);
-await fastify.register(cors, { origin: true });
-await fastify.register(rateLimit, { max: 200, timeWindow: '1 minute' });
-await fastify.register(healthRoutes);
-await fastify.register(productRoutes);
+fastify.get('/',       async () => ({ status: 'ok' }));
+fastify.get('/health', async () => ({ status: 'ok', ts: new Date().toISOString() }));
 
-fastify.setErrorHandler((err, req, reply) => {
-  fastify.log.error(err);
-  reply.code(err.statusCode || 500).send({ error: err.message || 'Internal server error' });
+fastify.get('/product/:barcode', async (req) => {
+  const { barcode } = req.params;
+  const { createClient } = await import('@supabase/supabase-js');
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  const { data } = await supabase.from('products').select('*').eq('barcode', barcode).single();
+  if (!data) return { error: 'not found', barcode };
+  return data;
 });
 
-try {
-  await fastify.listen({ port: PORT, host: '0.0.0.0' });
-  console.log(`✓ Tasted API running on port ${PORT}`);
-} catch (err) {
-  fastify.log.error(err);
-  process.exit(1);
-}
+fastify.get('/search', async (req) => {
+  const { q = '', supermarket = '', category = '' } = req.query;
+  const { createClient } = await import('@supabase/supabase-js');
+  const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  let qb = supabase.from('products').select('id,barcode,name,brand,category,supermarket,image_url,score,review_count');
+  if (q)           qb = qb.or(`name.ilike.%${q}%,brand.ilike.%${q}%`);
+  if (supermarket) qb = qb.eq('supermarket', supermarket);
+  if (category)    qb = qb.eq('category', category);
+  const { data } = await qb.order('review_count', { ascending: false }).limit(30);
+  return { results: data || [] };
+});
+
+await fastify.listen({ port: PORT, host: '0.0.0.0' });
+console.log(`✓ API on port ${PORT}`);
