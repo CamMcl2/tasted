@@ -110,7 +110,9 @@ export default async function productRoutes(fastify) {
   // ── GET /trending ──────────────────────────────────────────────────────────
   fastify.get('/trending', async (req, reply) => {
     const { redis, keys } = await import('../lib/redis.js');
-    const barcodes = await redis.zrange(keys.trending(), 0, 9, { rev: true });
+    const r = redis();
+    if (!r) return reply.send({ barcodes: [] });
+    const barcodes = await r.zrange(keys.trending(), 0, 9, { rev: true });
     return reply.send({ barcodes });
   });
 }
