@@ -1,8 +1,11 @@
 import Fastify        from 'fastify';
+import cors           from '@fastify/cors';
 import { createClient } from '@supabase/supabase-js';
 
 const PORT = Number(process.env.PORT) || 3001;
 const fastify = Fastify({ logger: true });
+
+await fastify.register(cors, { origin: true });
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
