@@ -64,11 +64,11 @@ fastify.get('/search', async (req) => {
   const { q = '', supermarket = '', category = '' } = req.query;
   let qb = supabase
     .from('products')
-    .select('id,barcode,name,brand,category,supermarket,image_url,score,review_count');
+    .select('id,barcode,name,brand,category,supermarket,image_url,ai_summary');
   if (q)           qb = qb.or(`name.ilike.%${q}%,brand.ilike.%${q}%`);
   if (supermarket) qb = qb.eq('supermarket', supermarket);
   if (category)    qb = qb.eq('category', category);
-  const { data } = await qb.order('review_count', { ascending: false }).limit(30);
+  const { data } = await qb.limit(30);
   return { results: data || [] };
 });
 

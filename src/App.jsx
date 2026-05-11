@@ -867,7 +867,7 @@ function SearchScreen({ onProduct }) {
       } else {
         let qb = supabase
           .from('products')
-          .select('id,barcode,name,brand,category,supermarket,image_url,score,review_count');
+          .select('id,barcode,name,brand,category,supermarket,image_url,ai_summary');
         if (query) qb = qb.or(`name.ilike.%${query}%,brand.ilike.%${query}%`);
         if (sup)   qb = qb.eq('supermarket', sup);
         if (cat)   qb = qb.eq('category', cat);
@@ -959,142 +959,165 @@ function ScanScreen({ onClose, onProduct }) {
       if (!cancelled) { cancelled = true; setManual(true); }
     }, 18000);
 
+    // ── Shared handler: called with barcode string once detected ─────────────
+    async function handleCode(code) {
+      if (cancelled) return;
+      cancelled = true;
+      clearTimeout(hardTimeout);
+      setDetected(true);
+      setScannedCode(code);
+      setStatus('');
+      setLookingUp(true);
+      try {
+        if (HAS_API) {
+          const controller = new AbortController();
+          const timer = setTimeout(()=>controller.abort(), 10000);
+          try {
+            const res = await fetch(`${API_URL}/product/${code}`, { signal: controller.signal });
+            clearTimeout(timer);
+            if (res.ok) {
+              const p = await res.json();
+              setLookingUp(false);
+              setFound({ ...p, avg_taste:p.avg_taste??0, avg_value:p.avg_value??0, avg_quality:p.avg_quality??0 });
+              return;
+            }
+          } catch { clearTimeout(timer); }
+        }
+        if (!IS_DEMO) {
+          try {
+            const { data } = await Promise.race([
+              supabase.from('products').select('*').eq('barcode', code).single(),
+              new Promise((_,r)=>setTimeout(()=>r(new Error('t')),2000)),
+            ]);
+            if (data) { setLookingUp(false); setFound({ ...data, avg_taste:data.avg_taste??0, avg_value:data.avg_value??0, avg_quality:data.avg_quality??0, review_count:data.review_count??0 }); return; }
+          } catch { /* continue */ }
+        }
+        const controller = new AbortController();
+        const offTimer = setTimeout(()=>controller.abort(), 8000);
+        try {
+          const res  = await fetch(`${OFF_BASE}/${code}.json`, { signal: controller.signal });
+          clearTimeout(offTimer);
+          const data = await res.json();
+          if (data.status === 1 && data.product) {
+            const p = { id:code, barcode:code, name:data.product.product_name||data.product.abbreviated_product_name||'Unknown', brand:data.product.brands||'', category:data.product.categories_tags?.[0]?.replace('en:','')||'Other', supermarket:'', image_url:data.product.image_front_url||null, avg_taste:0, avg_value:0, avg_quality:0, review_count:0, ai_summary:null };
+            if (!IS_DEMO) supabase.from('products').insert({ barcode:p.barcode, name:p.name, brand:p.brand, category:p.category, image_url:p.image_url }).catch(()=>{});
+            setLookingUp(false); setFound(p); return;
+          }
+        } catch { clearTimeout(offTimer); }
+      } catch { /* fall through */ }
+      setLookingUp(false);
+      setForm(f=>({...f, barcode:code}));
+      setManual(true);
+    }
+
     async function start() {
       try {
-        const { BrowserMultiFormatReader } = await import('@zxing/browser');
-        const reader = new BrowserMultiFormatReader();
-        readerRef.current = reader;
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        });
+        if (cancelled) { stream.getTracks().forEach(t=>t.stop()); return; }
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+        readerRef.current = { stream };
         setStatus('Point camera at a barcode');
-        await reader.decodeFromConstraints(
-          { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
-          videoRef.current,
-          async (result, err) => {
-            if (cancelled || !result) return;
-            const code = result.getText();
-            cancelled = true;
-            clearTimeout(hardTimeout);
-            reader.reset();
 
-            // ── Visual: green flash on viewfinder ────────────────────────
-            setDetected(true);
-            setScannedCode(code);
-            setStatus('');
-            setLookingUp(true);
-
+        if ('BarcodeDetector' in window) {
+          // ── Native BarcodeDetector (Android Chrome — very fast) ───────────
+          const detector = new window.BarcodeDetector({
+            formats: ['ean_13','ean_8','upc_a','upc_e','code_128','code_39','itf','qr_code'],
+          });
+          const tick = async () => {
+            if (cancelled) return;
             try {
-              // ── Tier 1: Fastify API (Redis → DB → OFF in one call) ────
-              if (HAS_API) {
-                const controller = new AbortController();
-                const timer = setTimeout(()=>controller.abort(), 10000);
-                try {
-                  const res = await fetch(`${API_URL}/product/${code}`, { signal: controller.signal });
-                  clearTimeout(timer);
-                  if (res.ok) {
-                    const p = await res.json();
-                    setLookingUp(false);
-                    setFound({ ...p, avg_taste: p.avg_taste??0, avg_value: p.avg_value??0, avg_quality: p.avg_quality??0 });
-                    return;
-                  }
-                  if (res.status === 404) {
-                    clearTimeout(timer);
-                    setLookingUp(false);
-                    setForm(f=>({...f, barcode:code}));
-                    setManual(true);
-                    return;
-                  }
-                } catch { clearTimeout(timer); /* fall through to direct Supabase */ }
-              }
-
-              // ── Tier 2: Direct Supabase (no API deployed yet) ────────
-              if (!IS_DEMO) {
-                try {
-                  const { data: cached } = await Promise.race([
-                    supabase.from('products').select('*').eq('barcode', code).single(),
-                    new Promise((_,r) => setTimeout(()=>r(new Error('timeout')), 2000)),
-                  ]);
-                  if (cached) {
-                    setLookingUp(false);
-                    setFound({ ...cached, avg_taste:cached.avg_taste??0, avg_value:cached.avg_value??0, avg_quality:cached.avg_quality??0, review_count:cached.review_count??0 });
-                    return;
-                  }
-                } catch { /* not found or timeout — continue to OFF */ }
-              }
-
-              // ── Tier 3: Open Food Facts direct (fallback) ─────────────
-              const controller = new AbortController();
-              const offTimer = setTimeout(()=>controller.abort(), 8000);
-              try {
-                const res  = await fetch(`${OFF_BASE}/${code}.json`, { signal: controller.signal });
-                clearTimeout(offTimer);
-                const data = await res.json();
-                if (data.status === 1 && data.product) {
-                  const p = {
-                    id: code, barcode: code,
-                    name:      data.product.product_name || data.product.abbreviated_product_name || 'Unknown Product',
-                    brand:     data.product.brands || '',
-                    category:  data.product.categories_tags?.[0]?.replace('en:','') || 'Other',
-                    supermarket: '',
-                    image_url: data.product.image_front_url || data.product.image_url || null,
-                    avg_taste:0, avg_value:0, avg_quality:0, review_count:0, ai_summary:null,
-                  };
-                  if (!IS_DEMO) supabase.from('products').insert({ barcode:p.barcode, name:p.name, brand:p.brand, category:p.category, image_url:p.image_url }).catch(()=>{});
-                  setLookingUp(false);
-                  setFound(p);
-                } else {
-                  setLookingUp(false);
-                  setForm(f=>({...f, barcode:code}));
-                  setManual(true);
-                }
-              } catch {
-                clearTimeout(offTimer);
-                setLookingUp(false);
-                setForm(f=>({...f, barcode:code}));
-                setManual(true);
-              }
-            } catch {
-              setLookingUp(false);
-              setForm(f=>({...f, barcode:code}));
-              setManual(true);
-            }
-          }
-        );
+              const results = await detector.detect(videoRef.current);
+              if (results.length > 0) { await handleCode(results[0].rawValue); return; }
+            } catch { /* frame not ready */ }
+            requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        } else {
+          // ── ZXing fallback (iOS Safari, older browsers) ───────────────────
+          const { BrowserMultiFormatReader } = await import('@zxing/browser');
+          const reader = new BrowserMultiFormatReader();
+          readerRef.current = { stream, reader };
+          reader.decodeFromStream(stream, videoRef.current, async (result) => {
+            if (!cancelled && result) await handleCode(result.getText());
+          });
+        }
       } catch(e) {
         clearTimeout(hardTimeout);
         const msg = e?.message || '';
-        if (msg.includes('Cannot find module') || msg.includes('Failed to fetch dynamically')) {
-          setError('Run "npm install" to enable camera scanning.');
-        } else if (msg.includes('Permission') || msg.includes('permission') || msg.includes('NotAllowed')) {
-          setError('Camera access denied. Please allow camera access in your browser settings, then try again.');
+        if (msg.includes('Permission') || msg.includes('NotAllowed') || msg.includes('permission')) {
+          setError('Camera access denied. Please allow camera access in your browser settings.');
         } else {
           setError('Could not start camera. Try adding the product manually.');
         }
       }
     }
     start();
-    return () => { cancelled = true; clearTimeout(hardTimeout); try { readerRef.current?.reset?.(); } catch {} };
+    return () => {
+      cancelled = true;
+      clearTimeout(hardTimeout);
+      try { readerRef.current?.stream?.getTracks().forEach(t=>t.stop()); } catch {}
+      try { readerRef.current?.reader?.reset?.(); } catch {}
+    };
   }, []);
+
+  async function lookupBarcode() {
+    if (!form.barcode.trim()) return;
+    setSaving(true);
+    try {
+      // Try API first, then direct Supabase
+      let product = null;
+      if (HAS_API) {
+        const res = await Promise.race([
+          fetch(`${API_URL}/product/${form.barcode.trim()}`),
+          new Promise((_,r) => setTimeout(() => r(new Error('timeout')), 8000)),
+        ]);
+        if (res.ok) product = await res.json();
+      } else if (!IS_DEMO) {
+        const { data } = await supabase.from('products').select('*').eq('barcode', form.barcode.trim()).single();
+        product = data;
+      }
+      if (product && !product.error) {
+        setFound(product);
+        setManual(false);
+        return;
+      }
+    } catch { /* not found — stay on manual form */ }
+    setSaving(false);
+    showToast('Barcode not found — fill in the details below');
+  }
 
   async function saveManual(e) {
     e.preventDefault();
     if (!form.name.trim()) return;
     setSaving(true);
-    const newP = {
-      id: `manual-${Date.now()}`, barcode: form.barcode||null,
-      name: form.name, brand: form.brand, supermarket: form.supermarket,
-      category: form.category || 'Other', image_url: null,
-      avg_taste:0, avg_value:0, avg_quality:0, review_count:0, ai_summary:null,
-    };
-    if (!IS_DEMO) {
-      const { data } = await supabase.from('products').insert({
-        barcode:newP.barcode||null, name:newP.name, brand:newP.brand,
-        supermarket:newP.supermarket, category:newP.category,
-      }).select().single();
-      if (data) newP.id = data.id;
+    try {
+      const newP = {
+        id: `manual-${Date.now()}`, barcode: form.barcode||null,
+        name: form.name, brand: form.brand, supermarket: form.supermarket,
+        category: form.category || 'Other', image_url: null,
+        avg_taste:0, avg_value:0, avg_quality:0, review_count:0, ai_summary:null,
+      };
+      if (!IS_DEMO) {
+        const { data } = await Promise.race([
+          supabase.from('products').insert({
+            barcode:newP.barcode||null, name:newP.name, brand:newP.brand,
+            supermarket:newP.supermarket, category:newP.category,
+          }).select().single(),
+          new Promise((_,r) => setTimeout(() => r(new Error('timeout')), 8000)),
+        ]);
+        if (data) newP.id = data.id;
+      }
+      showToast('Product added!');
+      onProduct(newP);
+      onClose();
+    } catch {
+      showToast('Could not save — please try again');
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    showToast('Product added!');
-    onProduct(newP);
-    onClose();
   }
 
   // ── Found screen ────────────────────────────────────────────────────────
@@ -1133,9 +1156,17 @@ function ScanScreen({ onClose, onProduct }) {
             onChange={e=>setForm(f=>({...f,name:e.target.value}))} required/>
           <input placeholder="Brand" value={form.brand}
             onChange={e=>setForm(f=>({...f,brand:e.target.value}))}/>
-          <input placeholder="Barcode (optional)" value={form.barcode}
-            onChange={e=>setForm(f=>({...f,barcode:e.target.value}))}
-            inputMode="numeric"/>
+          <div style={{display:'flex',gap:8}}>
+            <input placeholder="Barcode number" value={form.barcode}
+              onChange={e=>setForm(f=>({...f,barcode:e.target.value}))}
+              inputMode="numeric" style={{flex:1}}/>
+            {form.barcode.trim() && (
+              <button type="button" className="btn btn-secondary" style={{flexShrink:0,fontSize:13}}
+                onClick={lookupBarcode} disabled={saving}>
+                {saving ? '…' : 'Look up'}
+              </button>
+            )}
+          </div>
           <select value={form.supermarket} onChange={e=>setForm(f=>({...f,supermarket:e.target.value}))}>
             <option value="">Supermarket (optional)</option>
             {SUPERMARKETS.map(s=><option key={s}>{s}</option>)}
